@@ -1,0 +1,359 @@
+<!DOCTYPE html><html><head><meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cosmic Black Hole</title>
+    <script src="https://cdn.jsdelivr.net/npm/p5@1.8.0/lib/p5.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+        #canvas-container {
+            width: 100%;
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: center;
+            position: relative;
+        }
+        #info {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            font-size: 12px;
+            opacity: 0.7;
+            pointer-events: none;
+        }
+    </style>
+
+<base target="_self">
+
+
+    </head><body><div id="canvas-container"></div>
+    <div id="info">Move mouse to orbit • Click to spawn stars</div>
+
+    <script>
+        const sketch = (p) => {
+            let blackHole;
+            let stars = [];
+            let accretionParticles = [];
+            let maxStars = 1000;
+            let maxAccretionParticles = 2000;
+            let cameraAngle = 0;
+            let cameraDistance = 400;
+            let targetCameraDistance = 400;
+            let lastMouseX = 0;
+            let isDragging = false;
+            let starField = [];
+            let time = 0;
+            let gravity = 0.1;
+            let eventHorizonRadius = 100;
+            let lensingEffect = 0.5;
+            let quality = 1;
+
+            p.setup = () => {
+                let canvas = p.createCanvas(p.min(p.windowWidth, 1200), p.min(p.windowHeight, 800));
+                canvas.parent('canvas-container');
+                p.colorMode(p.HSB, 360, 100, 100, 1);
+                
+                blackHole = {
+                    x: p.width/2,
+                    y: p.height/2,
+                    radius: eventHorizonRadius,
+                    glow: 0
+                };
+
+                // Create initial star field
+                for (let i = 0; i < 200; i++) {
+                    starField.push(createStar(true));
+                }
+                
+                p.frameRate(60);
+            };
+
+            function createStar(isBackground = false) {
+                let angle = p.random(p.TWO_PI);
+                let distance = isBackground ? p.random(50, p.max(p.width, p.height) * 0.8) : p.random(100, 300);
+                let speed = isBackground ? p.random(0.001, 0.005) : p.random(0.01, 0.05);
+                return {
+                    x: p.width/2 + p.cos(angle) * distance,
+                    y: p.height/2 + p.sin(angle) * distance,
+                    size: isBackground ? p.random(1, 3) : p.random(2, 5),
+                    hue: p.random(180, 240),
+                    brightness: p.random(70, 100),
+                    angle: angle,
+                    distance: distance,
+                    speed: speed,
+                    originalX: p.width/2 + p.cos(angle) * distance,
+                    originalY: p.height/2 + p.sin(angle) * distance,
+                    isBackground: isBackground
+                };
+            }
+
+            function createAccretionParticle() {
+                let angle = p.random(p.TWO_PI);
+                let distance = p.random(eventHorizonRadius * 1.2, eventHorizonRadius * 3);
+                let speed = p.random(0.5, 2);
+                let life = p.random(100, 200);
+                
+                return {
+                    x: p.width/2 + p.cos(angle) * distance,
+                    y: p.height/2 + p.sin(angle) * distance,
+                    size: p.random(1, 3),
+                    hue: p.random(0, 60),
+                    brightness: 100,
+                    angle: angle,
+                    distance: distance,
+                    speed: speed * (angle > p.PI ? -1 : 1),
+                    life: life,
+                    maxLife: life,
+                    orbitSpeed: p.random(0.01, 0.05)
+                };
+            }
+
+            p.draw = () => {
+                time += 0.01;
+                p.background(0, 0, 10);
+                
+                // Adjust quality if frame rate drops
+                if (p.frameRate() < 30 && quality > 0.5) {
+                    quality *= 0.95;
+                } else if (p.frameRate() > 50 && quality < 1) {
+                    quality *= 1.05;
+                }
+                
+                // Update camera distance
+                cameraDistance = p.lerp(cameraDistance, targetCameraDistance, 0.05);
+                
+                // Update black hole glow
+                blackHole.glow = p.sin(time * 2) * 5 + 5;
+                
+                // Draw background stars
+                drawStarField();
+                
+                // Draw accretion disk
+                drawAccretionDisk();
+                
+                // Update and draw stars
+                updateStars();
+                
+                // Draw black hole
+                drawBlackHole();
+                
+                // Draw lensing effect
+                drawLensingEffect();
+                
+                // Handle mouse interaction for camera control
+                if (p.mouseX !== lastMouseX && p.mouseX > 0 && p.mouseX < p.width && p.mouseY > 0 && p.mouseY < p.height) {
+                    cameraAngle += (p.mouseX - lastMouseX) * 0.01;
+                    targetCameraDistance = p.constrain(targetCameraDistance + (p.mouseY - p.pmouseY) * 0.5, 200, 800);
+                }
+                lastMouseX = p.mouseX;
+            };
+
+            function drawStarField() {
+                for (let star of starField) {
+                    star.angle += star.speed;
+                    star.x = p.width/2 + p.cos(star.angle) * star.distance;
+                    star.y = p.height/2 + p.sin(star.angle) * star.distance;
+                    
+                    // Apply gravitational lensing to background stars
+                    let dx = star.x - blackHole.x;
+                    let dy = star.y - blackHole.y;
+                    let dist = p.sqrt(dx*dx + dy*dy);
+                    let lensFactor = p.constrain(1 + (eventHorizonRadius * 2) / (dist + 0.1), 1, 3);
+                    
+                    p.push();
+                    p.translate(blackHole.x, blackHole.y);
+                    p.scale(lensFactor, lensFactor);
+                    p.translate(-blackHole.x, -blackHole.y);
+                    
+                    p.noStroke();
+                    p.fill(star.hue, 30, star.brightness);
+                    p.circle(star.x, star.y, star.size);
+                    p.pop();
+                }
+            }
+
+            function drawAccretionDisk() {
+                // Create new particles if under limit
+                if (accretionParticles.length < maxAccretionParticles * quality && p.frameCount % 2 === 0) {
+                    accretionParticles.push(createAccretionParticle());
+                }
+                
+                // Draw particles
+                for (let i = accretionParticles.length - 1; i >= 0; i--) {
+                    let particle = accretionParticles[i];
+                    
+                    // Update position
+                    particle.angle += particle.orbitSpeed;
+                    particle.distance -= particle.speed * 0.1;
+                    particle.x = blackHole.x + p.cos(particle.angle) * particle.distance;
+                    particle.y = blackHole.y + p.sin(particle.angle) * particle.distance;
+                    
+                    // Apply gravity
+                    let dx = blackHole.x - particle.x;
+                    let dy = blackHole.y - particle.y;
+                    let dist = p.sqrt(dx*dx + dy*dy);
+                    let force = gravity * (eventHorizonRadius * eventHorizonRadius) / (dist * dist);
+                    
+                    particle.x += dx * force;
+                    particle.y += dy * force;
+                    
+                    // Update life
+                    particle.life--;
+                    
+                    // Draw particle with Doppler effect
+                    let brightness = p.map(particle.life, 0, particle.maxLife, 0, 100);
+                    let size = p.map(particle.life, 0, particle.maxLife, 0, particle.size);
+                    
+                    // Doppler shift - blue if moving toward us, red if away
+                    let velocityFactor = particle.orbitSpeed * 100;
+                    let hueShift = p.constrain(velocityFactor, -60, 60);
+                    let hue = (particle.hue + hueShift) % 360;
+                    
+                    p.noStroke();
+                    p.fill(hue, 80, brightness, 0.8);
+                    p.circle(particle.x, particle.y, size);
+                    
+                    // Remove dead particles
+                    if (particle.life <= 0 || dist < eventHorizonRadius * 0.9) {
+                        accretionParticles.splice(i, 1);
+                    }
+                }
+            }
+
+            function updateStars() {
+                // Create new stars if under limit and mouse is pressed
+                if (p.mouseIsPressed && stars.length < maxStars * quality && p.frameCount % 3 === 0) {
+                    stars.push(createStar(false));
+                }
+                
+                // Update and draw stars
+                for (let i = stars.length - 1; i >= 0; i--) {
+                    let star = stars[i];
+                    
+                    // Apply gravity toward black hole
+                    let dx = blackHole.x - star.x;
+                    let dy = blackHole.y - star.y;
+                    let dist = p.sqrt(dx*dx + dy*dy);
+                    let force = gravity * (eventHorizonRadius * eventHorizonRadius) / (dist * dist);
+                    
+                    star.x += dx * force;
+                    star.y += dy * force;
+                    
+                    // Draw star
+                    p.noStroke();
+                    p.fill(star.hue, 30, star.brightness);
+                    p.circle(star.x, star.y, star.size);
+                    
+                    // Remove stars that fall into black hole
+                    if (dist < eventHorizonRadius * 1.1) {
+                        stars.splice(i, 1);
+                        
+                        // Create explosion effect
+                        for (let j = 0; j < 5; j++) {
+                            if (accretionParticles.length < maxAccretionParticles) {
+                                accretionParticles.push(createAccretionParticle());
+                            }
+                        }
+                    }
+                }
+            }
+
+            function drawBlackHole() {
+                // Black hole shadow
+                p.noStroke();
+                p.fill(0);
+                p.circle(blackHole.x, blackHole.y, eventHorizonRadius * 2);
+                
+                // Glowing edge
+                for (let i = 0; i < 3; i++) {
+                    let glowSize = eventHorizonRadius * 2 + i * blackHole.glow;
+                    let alpha = 0.3 - i * 0.1;
+                    p.fill(60, 80, 30, alpha);
+                    p.circle(blackHole.x, blackHole.y, glowSize);
+                }
+                
+                // Singularity glow
+                let glowHue = (time * 10) % 360;
+                for (let i = 0; i < 5; i++) {
+                    let glowSize = eventHorizonRadius * 0.5 + i * 5;
+                    let alpha = 0.1 - i * 0.02;
+                    p.fill(glowHue, 100, 100, alpha);
+                    p.circle(blackHole.x, blackHole.y, glowSize);
+                }
+            }
+
+            function drawLensingEffect() {
+                // Create lensing distortion around black hole
+                p.push();
+                p.translate(blackHole.x, blackHole.y);
+                
+                let distortion = lensingEffect * 100;
+                for (let r = eventHorizonRadius * 1.5; r < eventHorizonRadius * 4; r += 10) {
+                    let wave = p.sin(time * 2 + r * 0.1) * 5;
+                    p.noFill();
+                    p.stroke(60, 80, 50, 0.3);
+                    p.strokeWeight(1);
+                    p.ellipse(0, 0, r * 2 + wave, r * 2 + wave);
+                }
+                
+                p.pop();
+            }
+
+            p.mousePressed = () => {
+                isDragging = true;
+                
+                // Spawn a cluster of stars on click
+                for (let i = 0; i < 20; i++) {
+                    if (stars.length < maxStars) {
+                        stars.push({
+                            x: p.mouseX + p.random(-20, 20),
+                            y: p.mouseY + p.random(-20, 20),
+                            size: p.random(2, 5),
+                            hue: p.random(180, 240),
+                            brightness: p.random(70, 100)
+                        });
+                    }
+                }
+            };
+
+            p.mouseReleased = () => {
+                isDragging = false;
+            };
+
+            p.mouseWheel = (event) => {
+                targetCameraDistance = p.constrain(targetCameraDistance - event.delta * 0.5, 200, 800);
+                return false;
+            };
+
+            p.windowResized = () => {
+                p.resizeCanvas(p.min(p.windowWidth, 1200), p.min(p.windowHeight, 800));
+                blackHole.x = p.width/2;
+                blackHole.y = p.height/2;
+                
+                // Rebuild star field
+                starField = [];
+                for (let i = 0; i < 200; i++) {
+                    starField.push(createStar(true));
+                }
+            };
+        };
+
+        new p5(sketch);
+    </script>
+
+              
+          
+                
+          
+              
+</body></html>
